@@ -61,7 +61,7 @@
 			"options": {
 				"cwd": "${workspaceFolder}/RasputinRouter/bin/Debug/net6.0"
 			},
-			"command": "host start --port 5002",
+			"command": "host start --port 5024",
 			"isBackground": true,
 			"problemMatcher": "$func-dotnet-watch"
 		}
