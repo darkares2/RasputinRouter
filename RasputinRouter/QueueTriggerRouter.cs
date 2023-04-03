@@ -24,7 +24,7 @@ namespace Rasputin.Router
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             });
             await SendLog(message);
-            
+            try {
             message.Headers.FirstOrDefault(x => {
                     x.Fields.TryGetValue("Active", out string active);
                     return x.Name == "route-header" && active.ToLower() == "true";
@@ -41,6 +41,12 @@ namespace Rasputin.Router
                 current.Fields["Name"] = queueName;
                 current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
                 await QueueMessageAsync(queueName, message, log);
+            }
+            } catch(Exception ex) {
+                var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
+                current.Fields["Name"] = $"Error: {ex.Message}";
+                current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                await SendLog(message);
             }
 
         }
@@ -69,7 +75,6 @@ namespace Rasputin.Router
 
             await sender.SendMessageAsync(messageObject, cancellationToken);
             await sender.CloseAsync();
-
         }
 
         private async Task QueueMessageAsync(string queueName, Message message, ILogger log)
