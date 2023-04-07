@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
@@ -27,7 +28,13 @@ namespace Rasputin.Router
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             });
+            var logMessage = new Message();
             try {
+                List<MessageHeader> headers = new List<MessageHeader>();
+                headers.Add(new MessageHeader() { Name = "id-header", Fields = new Dictionary<string, string>() { { "GUID", message.Headers.FirstOrDefault(x => x.Name.Equals("id-header")).Fields["GUID"] } } });
+                headers.Add(new MessageHeader() { Name = "current-queue-header", Fields = new Dictionary<string, string>() { { "Name", message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header")).Fields["Name"] }, { "Timestamp", message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header")).Fields["Timestamp"] } } });
+                logMessage.Headers = headers.ToArray();
+
                 message.Headers.FirstOrDefault(x => {
                         x.Fields.TryGetValue("Active", out string active);
                         return x.Name == "route-header" && active.ToLower() == "true";
@@ -43,15 +50,22 @@ namespace Rasputin.Router
                     var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
                     current.Fields["Name"] = queueName;
                     current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                    try {
                     await QueueMessageAsync(queueName, message, log);
+                    } catch {
+                        stopwatch.Stop();
+                        await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
+                        throw;
+                    }
                 }
                 stopwatch.Stop();
-                await SendLog(message, receivedMessageTime, stopwatch.ElapsedMilliseconds);
+                await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
             } catch(Exception ex) {
-                var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
+                var current = logMessage.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
                 current.Fields["Name"] = current.Fields["Name"] + $"-Error: {ex.Message}";
                 stopwatch.Stop();
-                await SendLog(message, receivedMessageTime, stopwatch.ElapsedMilliseconds);
+                await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
+                throw;
             }
 
         }
