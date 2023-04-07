@@ -66,7 +66,6 @@ namespace Rasputin.Router
                 current.Fields["Name"] = current.Fields["Name"] + $"-Error (Router): {ex.Message}";
                 stopwatch.Stop();
                 await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
-                throw;
             }
 
         }
