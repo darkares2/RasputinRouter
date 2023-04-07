@@ -51,7 +51,7 @@ namespace Rasputin.Router
                     current.Fields["Name"] = queueName;
                     current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
                     try {
-                    await QueueMessageAsync(queueName, message, log);
+                        await QueueMessageAsync(queueName, message, log);
                     } catch {
                         stopwatch.Stop();
                         await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
@@ -63,7 +63,7 @@ namespace Rasputin.Router
             } catch(Exception ex) {
                 log.LogError("Processing failed", ex);
                 var current = logMessage.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
-                current.Fields["Name"] = current.Fields["Name"] + $"-Error: {ex.Message}";
+                current.Fields["Name"] = current.Fields["Name"] + $"-Error (Router): {ex.Message}";
                 stopwatch.Stop();
                 await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
                 throw;
