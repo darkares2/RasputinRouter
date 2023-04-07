@@ -20,7 +20,7 @@ namespace Rasputin.Router
         [FunctionName("QueueTriggerRouter")]
         public async Task RunAsync([ServiceBusTrigger("api-router", Connection = "rasputinServicebus")]string myQueueItem, ILogger log)
         {
-            log.LogInformation($"C# Queue trigger function processed: {myQueueItem}");
+            log.LogInformation($"api-router triggered: {myQueueItem}");
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
             DateTime receivedMessageTime = DateTime.UtcNow;
@@ -61,6 +61,7 @@ namespace Rasputin.Router
                 stopwatch.Stop();
                 await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
             } catch(Exception ex) {
+                log.LogError("Processing failed", ex);
                 var current = logMessage.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
                 current.Fields["Name"] = current.Fields["Name"] + $"-Error: {ex.Message}";
                 stopwatch.Stop();
