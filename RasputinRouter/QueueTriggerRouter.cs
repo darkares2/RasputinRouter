@@ -20,48 +20,49 @@ namespace Rasputin.Router
         [FunctionName("QueueTriggerRouter")]
         public async Task RunAsync([ServiceBusTrigger("api-router", Connection = "rasputinServicebus")]string myQueueItem, ILogger log)
         {
-            log.LogInformation($"api-router triggered: {myQueueItem}");
-            Stopwatch stopwatch = new Stopwatch();
-            stopwatch.Start();
-            DateTime receivedMessageTime = DateTime.UtcNow;
-            var message = JsonSerializer.Deserialize<Message>(myQueueItem, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
-            var logMessage = new Message();
-            try {
-                List<MessageHeader> headers = new List<MessageHeader>();
-                headers.Add(new MessageHeader() { Name = "id-header", Fields = new Dictionary<string, string>() { { "GUID", message.Headers.FirstOrDefault(x => x.Name.Equals("id-header")).Fields["GUID"] } } });
-                headers.Add(new MessageHeader() { Name = "current-queue-header", Fields = new Dictionary<string, string>() { { "Name", message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header")).Fields["Name"] }, { "Timestamp", message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header")).Fields["Timestamp"] } } });
-                logMessage.Headers = headers.ToArray();
+            using(log.BeginScope("[api-router]")) {
+                log.LogInformation($"triggered: {myQueueItem}");
+                Stopwatch stopwatch = new Stopwatch();
+                stopwatch.Start();
+                DateTime receivedMessageTime = DateTime.UtcNow;
+                var message = JsonSerializer.Deserialize<Message>(myQueueItem, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                });
+                var logMessage = new Message();
+                try {
+                    List<MessageHeader> headers = new List<MessageHeader>();
+                    headers.Add(new MessageHeader() { Name = "id-header", Fields = new Dictionary<string, string>() { { "GUID", message.Headers.FirstOrDefault(x => x.Name.Equals("id-header")).Fields["GUID"] } } });
+                    headers.Add(new MessageHeader() { Name = "current-queue-header", Fields = new Dictionary<string, string>() { { "Name", message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header")).Fields["Name"] }, { "Timestamp", message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header")).Fields["Timestamp"] } } });
+                    logMessage.Headers = headers.ToArray();
 
-                message.Headers.FirstOrDefault(x => {
-                        x.Fields.TryGetValue("Active", out string active);
-                        return x.Name == "route-header" && active.ToLower() == "true";
-                    }).Fields.TryGetValue("Destination", out string queueName);
-                if (queueName != null) {
-                    log.LogInformation($"Queue Name: {queueName}");
-                    var route = message.Headers.FirstOrDefault(x => {
-                        x.Fields.TryGetValue("Active", out string active);
-                        return x.Name == "route-header" && active.ToLower() == "true";
-                    });
-                    route.Fields["Active"] = "false";
-                    route.Fields.Add("SentTimestamp", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
-                    var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
-                    current.Fields["Name"] = queueName;
-                    current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-                    await QueueMessageAsync(queueName, message, log);
+                    message.Headers.FirstOrDefault(x => {
+                            x.Fields.TryGetValue("Active", out string active);
+                            return x.Name == "route-header" && active.ToLower() == "true";
+                        }).Fields.TryGetValue("Destination", out string queueName);
+                    if (queueName != null) {
+                        log.LogInformation($"Queue Name: {queueName}");
+                        var route = message.Headers.FirstOrDefault(x => {
+                            x.Fields.TryGetValue("Active", out string active);
+                            return x.Name == "route-header" && active.ToLower() == "true";
+                        });
+                        route.Fields["Active"] = "false";
+                        route.Fields.Add("SentTimestamp", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
+                        var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
+                        current.Fields["Name"] = queueName;
+                        current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                        await QueueMessageAsync(queueName, message, log);
+                    }
+                    stopwatch.Stop();
+                    await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
+                } catch(Exception ex) {
+                    log.LogError("Processing failed", ex);
+                    var current = logMessage.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
+                    current.Fields["Name"] = current.Fields["Name"] + $"-Error (Router): {ex.Message}";
+                    stopwatch.Stop();
+                    await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
                 }
-                stopwatch.Stop();
-                await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
-            } catch(Exception ex) {
-                log.LogError("Processing failed", ex);
-                var current = logMessage.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
-                current.Fields["Name"] = current.Fields["Name"] + $"-Error (Router): {ex.Message}";
-                stopwatch.Stop();
-                await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
             }
-
         }
 
         private static async Task SendLog(Message message, DateTime receivedMessageTime, long elapsedMilliseconds)
