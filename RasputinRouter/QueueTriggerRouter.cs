@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -19,47 +20,53 @@ namespace Rasputin.Router
         public async Task RunAsync([ServiceBusTrigger("api-router", Connection = "rasputinServicebus")]string myQueueItem, ILogger log)
         {
             log.LogInformation($"C# Queue trigger function processed: {myQueueItem}");
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+            DateTime receivedMessageTime = DateTime.UtcNow;
             var message = JsonSerializer.Deserialize<Message>(myQueueItem, new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             });
-            await SendLog(message);
             try {
-            message.Headers.FirstOrDefault(x => {
-                    x.Fields.TryGetValue("Active", out string active);
-                    return x.Name == "route-header" && active.ToLower() == "true";
-                }).Fields.TryGetValue("Destination", out string queueName);
-            if (queueName != null) {
-                log.LogInformation($"Queue Name: {queueName}");
-                var route = message.Headers.FirstOrDefault(x => {
-                    x.Fields.TryGetValue("Active", out string active);
-                    return x.Name == "route-header" && active.ToLower() == "true";
-                });
-                route.Fields["Active"] = "false";
-                route.Fields.Add("SentTimestamp", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
-                var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
-                current.Fields["Name"] = queueName;
-                current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-                await QueueMessageAsync(queueName, message, log);
-            }
+                message.Headers.FirstOrDefault(x => {
+                        x.Fields.TryGetValue("Active", out string active);
+                        return x.Name == "route-header" && active.ToLower() == "true";
+                    }).Fields.TryGetValue("Destination", out string queueName);
+                if (queueName != null) {
+                    log.LogInformation($"Queue Name: {queueName}");
+                    var route = message.Headers.FirstOrDefault(x => {
+                        x.Fields.TryGetValue("Active", out string active);
+                        return x.Name == "route-header" && active.ToLower() == "true";
+                    });
+                    route.Fields["Active"] = "false";
+                    route.Fields.Add("SentTimestamp", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"));
+                    var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
+                    current.Fields["Name"] = queueName;
+                    current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                    await QueueMessageAsync(queueName, message, log);
+                }
+                stopwatch.Stop();
+                await SendLog(message, receivedMessageTime, stopwatch.ElapsedMilliseconds);
             } catch(Exception ex) {
                 var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
-                current.Fields["Name"] = $"Error: {ex.Message}";
+                current.Fields["Name"] = current.Fields["Name"] + $"-Error: {ex.Message}";
                 current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-                await SendLog(message);
+                stopwatch.Stop();
+                await SendLog(message, receivedMessageTime, stopwatch.ElapsedMilliseconds);
             }
 
         }
 
-        private async Task SendLog(Message message)
+        private static async Task SendLog(Message message, DateTime receivedMessageTime, long elapsedMilliseconds)
         {
             var idHeader = message.Headers.FirstOrDefault(x => x.Name.Equals("id-header"));
             var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
             LogTimer logTimer = new LogTimer() {
                 Id = Guid.Parse(idHeader.Fields["GUID"]),
                 Queue = current.Fields["Name"],
-                SentTimestamp = DateTime.ParseExact(current.Fields["Timestamp"], "yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
-                ReceiveTimestamp = DateTime.UtcNow
+                SentTimestamp = DateTime.ParseExact(current.Fields["Timestamp"], "yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal),
+                ReceiveTimestamp = receivedMessageTime,
+                ProcesMs = elapsedMilliseconds
             };
             await using var client = new ServiceBusClient(Environment.GetEnvironmentVariable("rasputinServicebus"));
             ServiceBusSender sender = client.CreateSender("ms-logtimer");
@@ -76,6 +83,7 @@ namespace Rasputin.Router
             await sender.SendMessageAsync(messageObject, cancellationToken);
             await sender.CloseAsync();
         }
+
 
         private async Task QueueMessageAsync(string queueName, Message message, ILogger log)
         {
