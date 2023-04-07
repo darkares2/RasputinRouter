@@ -50,13 +50,7 @@ namespace Rasputin.Router
                     var current = message.Headers.FirstOrDefault(x => x.Name.Equals("current-queue-header"));
                     current.Fields["Name"] = queueName;
                     current.Fields["Timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-                    try {
-                        await QueueMessageAsync(queueName, message, log);
-                    } catch {
-                        stopwatch.Stop();
-                        await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
-                        throw;
-                    }
+                    await QueueMessageAsync(queueName, message, log);
                 }
                 stopwatch.Stop();
                 await SendLog(logMessage, receivedMessageTime, stopwatch.ElapsedMilliseconds);
